@@ -104,18 +104,60 @@ versions (older docs mention `envlist`). Logs go to `/log` with
 
 The portal is now on `http://172.18.0.2:8080` from the LAN.
 
-## 7. Exposing it with HTTPS
+## 7. Automatic HTTPS with the built-in ACME client (recommended)
 
-Google/Microsoft OAuth requires `PUBLIC_URL` to be HTTPS. Options:
+Google/Microsoft OAuth requires `PUBLIC_URL` to be HTTPS. The portal can get
+and renew a **Let's Encrypt certificate by itself** (TLS-ALPN-01) — no
+reverse proxy needed.
 
-- a reverse proxy you already run (nginx/caddy/traefik) forwarding
-  `https://vpn.example.com` → `172.18.0.2:8080`;
-- RouterOS v7 `/ip/reverse-proxy` with a Let's Encrypt certificate
-  (`/certificate/enable-ssl-certificate`) — keeps everything on the router;
-- port-forward + certificate on some other edge device.
+**a.** Make sure the router has a public DNS name. The free MikroTik cloud
+DDNS is perfect:
+
+```
+/ip/cloud set ddns-enabled=yes
+/ip/cloud print    # -> dns-name: xxxxxxxx.sn.mynetname.net
+```
+
+**b.** Persistent mount for the certificate cache (otherwise every container
+restart burns a Let's Encrypt issuance — rate limits apply):
+
+```
+/container/mounts add name=acme-cache src=/acme-cache dst=/acme
+```
+
+and add `mounts=acme-cache` when creating the container.
+
+**c.** Environment variables:
+
+```
+/container/envs add list=portal key=ACME_DOMAIN value="xxxxxxxx.sn.mynetname.net"
+/container/envs add list=portal key=ACME_EMAIL value="you@example.com"
+/container/envs add list=portal key=PUBLIC_URL value="https://xxxxxxxx.sn.mynetname.net"
+```
+
+**d.** Forward public port 443 to the container's HTTPS listener (8443):
+
+```
+/ip/firewall/nat add chain=dstnat protocol=tcp dst-port=443 \
+    in-interface-list=WAN action=dst-nat to-addresses=172.18.0.2 to-ports=8443 \
+    comment="wg-portal HTTPS"
+```
+
+At the first HTTPS request the container requests the certificate (a few
+seconds); renewals are automatic. Port 80 stays closed and the router's own
+web services are never exposed.
 
 The WireGuard handshake itself (`WG_ENDPOINT`, UDP 13300) does not need any
-of this — only the web portal does.
+of this — only the web portal does:
+
+```
+/ip/firewall/filter add chain=input protocol=udp dst-port=13300 action=accept \
+    place-before=0 comment="wg-portal handshake"
+```
+
+Alternative: any reverse proxy you already run (nginx/caddy/traefik)
+forwarding `https://vpn.example.com` → `172.18.0.2:8080`, with `ACME_DOMAIN`
+left empty.
 
 ## Removal
 

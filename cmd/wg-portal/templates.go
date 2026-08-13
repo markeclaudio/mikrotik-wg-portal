@@ -40,6 +40,7 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!doctype html>
 {{if .Google}}<a class="btn google" href="/auth/google">Sign in with Google</a>{{end}}
 {{if .Microsoft}}<a class="btn microsoft" href="/auth/microsoft">Sign in with Microsoft</a>{{end}}
 {{if .Dev}}<a class="btn dev" href="/auth/dev">Test login (DEV)</a>{{end}}
+{{if .None}}<p class="meta">No login method is configured yet — the administrator must set the OAuth credentials.</p>{{end}}
 </div></body></html>`))
 
 var profileTmpl = template.Must(template.New("profile").Parse(`<!doctype html>
@@ -70,6 +71,7 @@ func renderLogin(w http.ResponseWriter, cfg Config, errMsg string) {
 		"Google":    cfg.GoogleID != "",
 		"Microsoft": cfg.MSID != "",
 		"Dev":       cfg.DevFakeAuth != "",
+		"None":      cfg.GoogleID == "" && cfg.MSID == "" && cfg.DevFakeAuth == "",
 		"Err":       errMsg,
 	})
 	if err != nil {
