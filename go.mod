@@ -1,4 +1,4 @@
-module wg-portal
+module github.com/markeclaudio/mikrotik-wg-portal
 
 go 1.22
 

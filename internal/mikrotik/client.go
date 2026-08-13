@@ -1,4 +1,6 @@
-package main
+// Package mikrotik is a minimal RouterOS v7 REST API client covering the
+// WireGuard endpoints used by the portal.
+package mikrotik
 
 import (
 	"bytes"
@@ -11,27 +13,29 @@ import (
 	"time"
 )
 
-type Mikrotik struct {
+type Client struct {
 	base string
 	user string
 	pass string
 	hc   *http.Client
 }
 
-func newMikrotik(cfg Config) *Mikrotik {
+// New creates a client for baseURL (e.g. "http://172.18.0.1").
+// insecure skips TLS verification for self-signed www-ssl certificates.
+func New(baseURL, user, pass string, insecure bool) *Client {
 	tr := &http.Transport{}
-	if cfg.MikrotikInsecure {
+	if insecure {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
-	return &Mikrotik{
-		base: cfg.MikrotikURL,
-		user: cfg.MikrotikUser,
-		pass: cfg.MikrotikPass,
+	return &Client{
+		base: baseURL,
+		user: user,
+		pass: pass,
 		hc:   &http.Client{Timeout: 15 * time.Second, Transport: tr},
 	}
 }
 
-func (m *Mikrotik) req(method, path string, body, out any) error {
+func (m *Client) req(method, path string, body, out any) error {
 	var rd io.Reader
 	if body != nil {
 		j, err := json.Marshal(body)
@@ -78,7 +82,7 @@ type WGPeer struct {
 	Dynamic        string `json:"dynamic"`
 }
 
-func (m *Mikrotik) WGInterface(name string) (WGIface, error) {
+func (m *Client) WGInterface(name string) (WGIface, error) {
 	var list []WGIface
 	if err := m.req("GET", "/interface/wireguard?name="+url.QueryEscape(name), nil, &list); err != nil {
 		return WGIface{}, err
@@ -89,17 +93,18 @@ func (m *Mikrotik) WGInterface(name string) (WGIface, error) {
 	return list[0], nil
 }
 
-func (m *Mikrotik) WGPeers(iface string) ([]WGPeer, error) {
+func (m *Client) WGPeers(iface string) ([]WGPeer, error) {
 	var list []WGPeer
 	err := m.req("GET", "/interface/wireguard/peers?interface="+url.QueryEscape(iface), nil, &list)
 	return list, err
 }
 
-func (m *Mikrotik) AddWGPeer(fields map[string]string) error {
+func (m *Client) AddWGPeer(fields map[string]string) error {
 	return m.req("PUT", "/interface/wireguard/peers", fields, nil)
 }
 
-// The .id is passed as-is: RouterOS wants the literal "*2E" and rejects a %-escaped asterisk.
-func (m *Mikrotik) DeleteWGPeer(id string) error {
+// DeleteWGPeer removes a peer by .id. The id is passed as-is: RouterOS wants
+// the literal "*2E" and rejects a %-escaped asterisk.
+func (m *Client) DeleteWGPeer(id string) error {
 	return m.req("DELETE", "/interface/wireguard/peers/"+id, nil, nil)
 }

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/markeclaudio/mikrotik-wg-portal/internal/wgutil"
 )
 
 type oidcProvider struct {
@@ -71,7 +73,7 @@ func (a *App) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "provider not configured", http.StatusNotFound)
 		return
 	}
-	state := base64.RawURLEncoding.EncodeToString(randomBytes(16))
+	state := base64.RawURLEncoding.EncodeToString(wgutil.RandomBytes(16))
 	stExp := strconv.FormatInt(time.Now().Add(10*time.Minute).Unix(), 10)
 	stPayload := state + "." + stExp
 	http.SetCookie(w, &http.Cookie{

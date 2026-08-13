@@ -7,9 +7,10 @@ ARG TARGETVARIANT
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY *.go ./
+COPY cmd/ cmd/
+COPY internal/ internal/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
-    go build -trimpath -ldflags="-s -w" -o /wg-portal .
+    go build -trimpath -ldflags="-s -w" -o /wg-portal ./cmd/wg-portal
 
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
