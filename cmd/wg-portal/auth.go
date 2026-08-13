@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/hmac"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -8,12 +9,16 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/markeclaudio/mikrotik-wg-portal/internal/wgutil"
 )
+
+// oauthHTTP is used for token/userinfo calls: never hang on a slow IdP.
+var oauthHTTP = &http.Client{Timeout: 15 * time.Second}
 
 type oidcProvider struct {
 	Name        string
@@ -60,15 +65,7 @@ func (a *App) redirectURI(provider string) string {
 }
 
 func (a *App) handleAuthStart(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("provider")
-
-	// Test login without OAuth, only active when DEV_FAKE_AUTH is set in the .env
-	if name == "dev" && a.cfg.DevFakeAuth != "" {
-		a.loginSuccess(w, r, a.cfg.DevFakeAuth)
-		return
-	}
-
-	p, ok := a.provider(name)
+	p, ok := a.provider(r.PathValue("provider"))
 	if !ok {
 		http.Error(w, "provider not configured", http.StatusNotFound)
 		return
@@ -107,7 +104,7 @@ func (a *App) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(c.Value, ".")
-	valid := len(parts) == 3 && a.sign(parts[0]+"."+parts[1]) == parts[2]
+	valid := len(parts) == 3 && hmac.Equal([]byte(a.sign(parts[0]+"."+parts[1])), []byte(parts[2]))
 	if valid {
 		if exp, err := strconv.ParseInt(parts[1], 10, 64); err != nil || time.Now().Unix() > exp {
 			valid = false
@@ -135,6 +132,13 @@ func (a *App) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) loginSuccess(w http.ResponseWriter, r *http.Request, email string) {
 	email = strings.ToLower(strings.TrimSpace(email))
+	// Bounded and well-formed: the email also ends up in the peer comment on
+	// the router, whose parsing must never break (expiry would be skipped).
+	if len(email) > 100 || strings.Count(email, "@") != 1 || strings.ContainsAny(email, " \t\r\n") {
+		log.Printf("access denied: malformed email %q", email)
+		http.Redirect(w, r, "/?err="+urlQuery("Account not usable (malformed email)."), http.StatusSeeOther)
+		return
+	}
 	if !a.emailAllowed(email) {
 		log.Printf("access denied for %s (not in allowlist)", email)
 		http.Redirect(w, r, "/?err="+urlQuery("Account not authorized: "+email), http.StatusSeeOther)
@@ -151,6 +155,26 @@ func (a *App) loginSuccess(w http.ResponseWriter, r *http.Request, email string)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// boolish accepts JSON true/false as well as "true"/"false" strings — some
+// IdPs serialize email_verified either way.
+type boolish struct{ set, val bool }
+
+func (b *boolish) UnmarshalJSON(data []byte) error {
+	s := strings.Trim(strings.ToLower(string(data)), `"`)
+	b.set, b.val = true, s == "true"
+	return nil
+}
+
+type idClaims struct {
+	Email             string  `json:"email"`
+	EmailVerified     boolish `json:"email_verified"`
+	PreferredUsername string  `json:"preferred_username"`
+	UPN               string  `json:"upn"`
+	TID               string  `json:"tid"`
+}
+
+var guidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$`)
+
 func (a *App) exchangeForEmail(p oidcProvider, code string) (string, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -159,7 +183,7 @@ func (a *App) exchangeForEmail(p oidcProvider, code string) (string, error) {
 		"client_secret": {p.Secret},
 		"redirect_uri":  {a.redirectURI(p.Name)},
 	}
-	res, err := http.PostForm(p.TokenURL, form)
+	res, err := oauthHTTP.PostForm(p.TokenURL, form)
 	if err != nil {
 		return "", err
 	}
@@ -176,19 +200,39 @@ func (a *App) exchangeForEmail(p oidcProvider, code string) (string, error) {
 		return "", err
 	}
 	// The id_token comes straight from the token endpoint over TLS: claims are trustworthy.
-	if email := emailFromIDToken(tok.IDToken); email != "" {
-		return email, nil
+	claims, haveClaims := claimsFromIDToken(tok.IDToken)
+
+	if p.Name == "microsoft" {
+		// Anti "nOAuth": in multi-tenant setups a rogue tenant admin can set an
+		// arbitrary email for their users. When MS_TENANT is a specific tenant
+		// GUID, require the token to come from exactly that tenant.
+		if guidRe.MatchString(a.cfg.MSTenant) {
+			if !haveClaims || !strings.EqualFold(claims.TID, a.cfg.MSTenant) {
+				return "", fmt.Errorf("id_token tenant %q does not match MS_TENANT", claims.TID)
+			}
+		}
+	}
+	if haveClaims && claims.EmailVerified.set && !claims.EmailVerified.val {
+		return "", fmt.Errorf("email %q is not verified by the identity provider", claims.Email)
+	}
+	if haveClaims {
+		for _, c := range []string{claims.Email, claims.PreferredUsername, claims.UPN} {
+			if strings.Contains(c, "@") {
+				return c, nil
+			}
+		}
 	}
 	// fallback: the userinfo endpoint
 	req, _ := http.NewRequest("GET", p.UserinfoURL, nil)
 	req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-	ures, err := http.DefaultClient.Do(req)
+	ures, err := oauthHTTP.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer ures.Body.Close()
 	var ui struct {
-		Email string `json:"email"`
+		Email         string  `json:"email"`
+		EmailVerified boolish `json:"email_verified"`
 	}
 	if err := json.NewDecoder(ures.Body).Decode(&ui); err != nil {
 		return "", err
@@ -196,30 +240,24 @@ func (a *App) exchangeForEmail(p oidcProvider, code string) (string, error) {
 	if ui.Email == "" {
 		return "", fmt.Errorf("no email in OIDC data")
 	}
+	if ui.EmailVerified.set && !ui.EmailVerified.val {
+		return "", fmt.Errorf("email %q is not verified by the identity provider", ui.Email)
+	}
 	return ui.Email, nil
 }
 
-func emailFromIDToken(idToken string) string {
+func claimsFromIDToken(idToken string) (idClaims, bool) {
 	parts := strings.Split(idToken, ".")
 	if len(parts) != 3 {
-		return ""
+		return idClaims{}, false
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return ""
+		return idClaims{}, false
 	}
-	var claims struct {
-		Email             string `json:"email"`
-		PreferredUsername string `json:"preferred_username"`
-		UPN               string `json:"upn"`
-	}
+	var claims idClaims
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return ""
+		return idClaims{}, false
 	}
-	for _, c := range []string{claims.Email, claims.PreferredUsername, claims.UPN} {
-		if strings.Contains(c, "@") {
-			return c
-		}
-	}
-	return ""
+	return claims, true
 }

@@ -121,8 +121,14 @@ successfully authenticated account gets a VPN profile. Always set at least one
 of them in production.
 
 You can leave either provider's variables empty: the corresponding button
-simply disappears from the login page. `DEV_FAKE_AUTH` bypasses OAuth entirely
-and must stay unset in production.
+simply disappears from the login page.
+
+🔒 **Microsoft hardening**: prefer a single-tenant app registration and set
+`MS_TENANT` to the tenant **GUID** (Directory ID), not the domain name. The
+portal then verifies the `tid` claim of every token and rejects logins from
+any other tenant — this closes the "nOAuth" email-spoofing vector of
+multi-tenant apps. With `common`/`organizations` a warning is logged at
+startup. Accounts whose email the IdP reports as unverified are rejected.
 
 ## Troubleshooting
 

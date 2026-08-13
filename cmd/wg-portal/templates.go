@@ -21,7 +21,7 @@ h1{font-size:1.25rem;margin-bottom:.25rem}
 p.sub{color:#94a3b8;font-size:.9rem;margin-bottom:1.5rem}
 .btn{display:block;width:100%;padding:.75rem;margin:.5rem 0;border-radius:10px;border:0;
 font-size:1rem;cursor:pointer;text-decoration:none;color:#fff;font-weight:600}
-.google{background:#4285f4}.microsoft{background:#5e5e5e}.dev{background:#7c3aed}
+.google{background:#4285f4}.microsoft{background:#5e5e5e}
 .primary{background:#059669}.secondary{background:#334155}.danger{background:#b91c1c}
 .qr{background:#fff;border-radius:12px;padding:12px;display:inline-block;margin:1rem 0}
 .qr img{display:block;width:240px;height:240px}
@@ -39,7 +39,6 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!doctype html>
 {{if .Err}}<div class="err">{{.Err}}</div>{{end}}
 {{if .Google}}<a class="btn google" href="/auth/google">Sign in with Google</a>{{end}}
 {{if .Microsoft}}<a class="btn microsoft" href="/auth/microsoft">Sign in with Microsoft</a>{{end}}
-{{if .Dev}}<a class="btn dev" href="/auth/dev">Test login (DEV)</a>{{end}}
 {{if .None}}<p class="meta">No login method is configured yet — the administrator must set the OAuth credentials.</p>{{end}}
 </div></body></html>`))
 
@@ -70,8 +69,7 @@ func renderLogin(w http.ResponseWriter, cfg Config, errMsg string) {
 	err := loginTmpl.Execute(w, map[string]any{
 		"Google":    cfg.GoogleID != "",
 		"Microsoft": cfg.MSID != "",
-		"Dev":       cfg.DevFakeAuth != "",
-		"None":      cfg.GoogleID == "" && cfg.MSID == "" && cfg.DevFakeAuth == "",
+		"None":      cfg.GoogleID == "" && cfg.MSID == "",
 		"Err":       errMsg,
 	})
 	if err != nil {

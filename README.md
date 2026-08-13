@@ -75,14 +75,15 @@ Every push to `main` builds the image for `linux/amd64`, `linux/arm64` and
 | `ALLOWED_DOMAINS` / `ALLOWED_EMAILS` | Access allowlist (empty = anyone who authenticates!) |
 | `ACME_DOMAIN` | Enables the built-in HTTPS listener with an automatic Let's Encrypt certificate for this domain (cache in `ACME_CACHE`, keep it on a persistent mount) |
 | `CF_API_TOKEN` / `CF_RECORD` | Cloudflare dynamic DNS: keeps the A record pointed at the current public IP (DNS-only) |
-| `DEV_FAKE_AUTH` | Test email: enables fake login without OAuth — **development only** |
 
 Full reference with comments: [.env.example](.env.example).
 
 ## Security
 
-- The client private key only exists in the container RAM and in the QR/`.conf` shown to the user.
+- The client private key only exists in the container RAM and in the QR/`.conf` shown to the user; all pages are served with `Cache-Control: no-store`.
 - Every regeneration deletes the user's previous peer; "Revoke" removes it immediately.
 - One user = one peer, tracked via the peer comment.
-- Use a dedicated RouterOS user for the portal (policy `read,write,api,rest-api`), not `admin`.
+- Use a dedicated RouterOS user for the portal (policy `read,write,api,rest-api`), not `admin`. Note that RouterOS policies are not granular: the `write` policy allows changing *any* router setting via REST, so treat the portal credentials as router-admin equivalent.
 - Set `ALLOWED_DOMAINS`/`ALLOWED_EMAILS`: authentication alone should not grant VPN access.
+- **Microsoft**: use a single-tenant app and put the tenant **GUID** in `MS_TENANT` — the portal then rejects tokens from other tenants (protection against email spoofing by rogue multi-tenant admins, aka "nOAuth"). Accounts whose email is reported as unverified by the IdP are rejected.
+- There is no test/bypass login: authentication always goes through the OAuth providers.

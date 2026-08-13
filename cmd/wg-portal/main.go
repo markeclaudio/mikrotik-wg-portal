@@ -58,8 +58,6 @@ type Config struct {
 	CFZone     string
 	CFProxied  bool
 	CFInterval time.Duration
-
-	DevFakeAuth string
 }
 
 func env(key, def string) string {
@@ -118,7 +116,6 @@ func loadConfig() Config {
 		CFRecord:         env("CF_RECORD", ""),
 		CFZone:           env("CF_ZONE", ""),
 		CFProxied:        env("CF_PROXIED", "false") == "true",
-		DevFakeAuth:      env("DEV_FAKE_AUTH", ""),
 	}
 	cfi, err0 := time.ParseDuration(env("CF_INTERVAL", "5m"))
 	if err0 != nil {
@@ -152,8 +149,17 @@ func loadConfig() Config {
 	if c.WGEndpoint == "" {
 		log.Fatal("WG_ENDPOINT is required (public host:port of the WireGuard server)")
 	}
-	if c.GoogleID == "" && c.MSID == "" && c.DevFakeAuth == "" {
+	if c.GoogleID == "" && c.MSID == "" {
 		log.Print("WARNING: no login method configured (set GOOGLE_CLIENT_ID/SECRET or MS_CLIENT_ID/SECRET): nobody will be able to sign in")
+	}
+	if len(c.AllowedDomains) == 0 && len(c.AllowedEmails) == 0 {
+		log.Print("WARNING: ALLOWED_DOMAINS and ALLOWED_EMAILS are empty: EVERY authenticated account gets a VPN profile")
+	}
+	if c.MSID != "" {
+		switch c.MSTenant {
+		case "common", "organizations", "consumers":
+			log.Printf("WARNING: MS_TENANT=%s is multi-tenant: a rogue Entra tenant admin can spoof email addresses (nOAuth). Use your tenant GUID to enforce the tenant.", c.MSTenant)
+		}
 	}
 	return c
 }
@@ -170,6 +176,8 @@ type App struct {
 
 	mu    sync.Mutex
 	confs map[string]confEntry // email -> last generated profile (RAM only)
+
+	genMu sync.Mutex // serializes profile generation (peer listing + IP allocation)
 }
 
 func main() {
@@ -206,6 +214,8 @@ func main() {
 	mux.HandleFunc("GET /logout", app.handleLogout)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
+	handler := securityHeaders(mux)
+
 	// With ACME_DOMAIN set, also serve HTTPS with an automatic Let's Encrypt
 	// certificate (TLS-ALPN-01: the public side of LISTEN_TLS must be
 	// reachable as https://ACME_DOMAIN:443 for issuance and renewals).
@@ -216,7 +226,7 @@ func main() {
 			Cache:      autocert.DirCache(cfg.AcmeCache),
 			Email:      cfg.AcmeEmail,
 		}
-		srv := &http.Server{Addr: cfg.ListenTLS, Handler: mux, TLSConfig: mgr.TLSConfig()}
+		srv := &http.Server{Addr: cfg.ListenTLS, Handler: handler, TLSConfig: mgr.TLSConfig()}
 		go func() {
 			log.Printf("wg-portal HTTPS listening on %s (ACME domain %s, cache %s)", cfg.ListenTLS, cfg.AcmeDomain, cfg.AcmeCache)
 			log.Fatal(srv.ListenAndServeTLS("", ""))
@@ -224,7 +234,21 @@ func main() {
 	}
 
 	log.Printf("wg-portal listening on %s (public URL %s, peer TTL %s)", cfg.ListenAddr, cfg.PublicURL, cfg.TTL)
-	log.Fatal(http.ListenAndServe(cfg.ListenAddr, mux))
+	log.Fatal(http.ListenAndServe(cfg.ListenAddr, handler))
+}
+
+// securityHeaders hardens every response. Cache-Control: no-store matters
+// most: the profile page and .conf contain the client's private key.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Cache-Control", "no-store")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ---- sessions (HMAC-signed cookie, stateless) ----
@@ -379,6 +403,11 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // generateProfile: fresh keys, peer on the MikroTik (replacing any existing one), conf kept in RAM.
 func (a *App) generateProfile(email string) error {
+	// Serialized: concurrent generations would race on the free-IP scan and
+	// could hand out the same address twice.
+	a.genMu.Lock()
+	defer a.genMu.Unlock()
+
 	iface, err := a.mt.WGInterface(a.cfg.WGInterface)
 	if err != nil {
 		return fmt.Errorf("WireGuard interface: %w", err)
