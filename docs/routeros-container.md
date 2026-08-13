@@ -38,18 +38,35 @@ otherwise the change is discarded. This cannot be done remotely by design.
 The REST API rides on the `www` (or `www-ssl`) service — make sure it is
 enabled and reachable from the container subnet.
 
-## 3. Build the image and upload it
+## 3. Get the image onto the router
 
-On any machine with Docker:
+Pick the architecture: `linux/arm/v7` for 32-bit ARM devices like the L009;
+`linux/arm64` for RB5009/hAP ax; `linux/amd64` for CHR. The image is ~9 MB.
+
+**Option A — pull straight from the registry (no file upload):**
+
+```
+/container/config set registry-url=https://ghcr.io tmpdir=pull
+```
+
+then in step 6 use `remote-image=markeclaudio/mikrotik-wg-portal:latest`
+instead of `file=...`. RouterOS picks the right architecture from the
+multi-arch manifest by itself.
+
+**Option B — prebuilt tar from GitHub:** download `wg-portal-<arch>.tar`
+from the latest [Actions run](https://github.com/markeclaudio/mikrotik-wg-portal/actions)
+(artifact `wg-portal-routeros-tars`) or from
+[Releases](https://github.com/markeclaudio/mikrotik-wg-portal/releases), and
+upload it to the router's Files via Winbox drag-and-drop, FTP or SFTP.
+
+**Option C — build it yourself:**
 
 ```
 docker buildx build --platform linux/arm/v7 -t wg-portal:arm --load .
 docker save wg-portal:arm -o wg-portal.tar
 ```
 
-(`linux/arm/v7` for 32-bit ARM devices like the L009; `linux/arm64` for
-RB5009/hAP ax; `linux/amd64` for CHR.) Upload `wg-portal.tar` to the router's
-Files via Winbox drag-and-drop, FTP or SFTP. The image is ~9 MB.
+and upload the tar as in option B.
 
 ## 4. Container network (veth)
 

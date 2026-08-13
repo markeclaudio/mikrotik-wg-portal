@@ -41,6 +41,22 @@ cp .env.example .env
    - on a Docker host: `docker compose up -d --build`
    - on the MikroTik itself: follow **[docs/routeros-container.md](docs/routeros-container.md)**
 
+## Prebuilt images
+
+Every push to `main` builds the image for `linux/amd64`, `linux/arm64` and
+`linux/arm/v7` via GitHub Actions:
+
+- **Registry (multi-arch)**: `ghcr.io/markeclaudio/mikrotik-wg-portal:latest`
+  — usable with `docker pull` or directly from RouterOS
+  (`/container add remote-image=...`, see the RouterOS guide).
+- **RouterOS tar files**: on the
+  [Actions page](https://github.com/markeclaudio/mikrotik-wg-portal/actions)
+  every run exposes a `wg-portal-routeros-tars` artifact with one
+  `wg-portal-<arch>.tar` per architecture, ready for `/container add file=...`.
+  Tagged releases (`v*`) also attach the tars to the
+  [Releases page](https://github.com/markeclaudio/mikrotik-wg-portal/releases)
+  (downloadable without a GitHub account).
+
 ## Main variables (`.env`)
 
 | Variable | Description |
