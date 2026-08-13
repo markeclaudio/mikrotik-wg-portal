@@ -159,6 +159,23 @@ Alternative: any reverse proxy you already run (nginx/caddy/traefik)
 forwarding `https://vpn.example.com` → `172.18.0.2:8080`, with `ACME_DOMAIN`
 left empty.
 
+### Using your own domain via Cloudflare (optional)
+
+If your domain is on Cloudflare, the portal can keep an A record (e.g.
+`vpn.example.com`) pointed at your current public IP automatically —
+a dynamic-DNS replacement for the mynetname.net name:
+
+```
+/container/envs add list=portal key=CF_API_TOKEN value="<token>"
+/container/envs add list=portal key=CF_RECORD value="vpn.example.com"
+```
+
+Create the token at <https://dash.cloudflare.com/profile/api-tokens> with
+**Zone / DNS / Edit** permission on the zone. Then point `ACME_DOMAIN`,
+`PUBLIC_URL` (https) and `WG_ENDPOINT` at the same name. The record is
+managed **DNS-only (grey cloud)**: the Cloudflare proxy would break both the
+WireGuard UDP endpoint and the TLS-ALPN certificate issuance.
+
 ## Removal
 
 ```
