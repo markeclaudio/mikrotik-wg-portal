@@ -99,6 +99,7 @@ func (m *Mikrotik) AddWGPeer(fields map[string]string) error {
 	return m.req("PUT", "/interface/wireguard/peers", fields, nil)
 }
 
+// The .id is passed as-is: RouterOS wants the literal "*2E" and rejects a %-escaped asterisk.
 func (m *Mikrotik) DeleteWGPeer(id string) error {
-	return m.req("DELETE", "/interface/wireguard/peers/"+url.PathEscape(id), nil, nil)
+	return m.req("DELETE", "/interface/wireguard/peers/"+id, nil, nil)
 }
