@@ -1,4 +1,4 @@
 .env
-wg-portal
-wg-portal.exe
+/wg-portal
+/wg-portal.exe
 *.tar
