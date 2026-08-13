@@ -60,7 +60,7 @@ func (a *App) redirectURI(provider string) string {
 func (a *App) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("provider")
 
-	// Login di test senza OAuth, attivo solo se DEV_FAKE_AUTH è impostato nel .env
+	// Test login without OAuth, only active when DEV_FAKE_AUTH is set in the .env
 	if name == "dev" && a.cfg.DevFakeAuth != "" {
 		a.loginSuccess(w, r, a.cfg.DevFakeAuth)
 		return
@@ -68,7 +68,7 @@ func (a *App) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 
 	p, ok := a.provider(name)
 	if !ok {
-		http.Error(w, "provider non configurato", http.StatusNotFound)
+		http.Error(w, "provider not configured", http.StatusNotFound)
 		return
 	}
 	state := base64.RawURLEncoding.EncodeToString(randomBytes(16))
@@ -95,13 +95,13 @@ func (a *App) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	p, ok := a.provider(r.PathValue("provider"))
 	if !ok {
-		http.Error(w, "provider non configurato", http.StatusNotFound)
+		http.Error(w, "provider not configured", http.StatusNotFound)
 		return
 	}
-	// verifica state
+	// verify state
 	c, err := r.Cookie("wgp_o")
 	if err != nil {
-		http.Redirect(w, r, "/?err="+urlQuery("Sessione di login scaduta, riprova."), http.StatusSeeOther)
+		http.Redirect(w, r, "/?err="+urlQuery("Login session expired, please retry."), http.StatusSeeOther)
 		return
 	}
 	parts := strings.Split(c.Value, ".")
@@ -112,20 +112,20 @@ func (a *App) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid || r.URL.Query().Get("state") != parts[0] {
-		http.Redirect(w, r, "/?err="+urlQuery("Verifica di sicurezza fallita (state), riprova."), http.StatusSeeOther)
+		http.Redirect(w, r, "/?err="+urlQuery("Security check failed (state), please retry."), http.StatusSeeOther)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "wgp_o", Value: "", Path: "/", MaxAge: -1})
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		http.Redirect(w, r, "/?err="+urlQuery("Login annullato."), http.StatusSeeOther)
+		http.Redirect(w, r, "/?err="+urlQuery("Login cancelled."), http.StatusSeeOther)
 		return
 	}
 	email, err := a.exchangeForEmail(p, code)
 	if err != nil {
 		log.Printf("oauth %s: %v", p.Name, err)
-		http.Redirect(w, r, "/?err="+urlQuery("Autenticazione fallita."), http.StatusSeeOther)
+		http.Redirect(w, r, "/?err="+urlQuery("Authentication failed."), http.StatusSeeOther)
 		return
 	}
 	a.loginSuccess(w, r, email)
@@ -134,16 +134,16 @@ func (a *App) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 func (a *App) loginSuccess(w http.ResponseWriter, r *http.Request, email string) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if !a.emailAllowed(email) {
-		log.Printf("accesso negato per %s (non in allowlist)", email)
-		http.Redirect(w, r, "/?err="+urlQuery("Account non autorizzato: "+email), http.StatusSeeOther)
+		log.Printf("access denied for %s (not in allowlist)", email)
+		http.Redirect(w, r, "/?err="+urlQuery("Account not authorized: "+email), http.StatusSeeOther)
 		return
 	}
 	a.setSession(w, email)
-	log.Printf("login riuscito: %s", email)
-	// Genera subito il profilo, come da flusso: login -> chiavi -> peer -> QR
+	log.Printf("login successful: %s", email)
+	// Generate the profile right away, as per the flow: login -> keys -> peer -> QR
 	if err := a.generateProfile(email); err != nil {
-		log.Printf("generazione profilo post-login per %s fallita: %v", email, err)
-		http.Redirect(w, r, "/?err="+urlQuery("Login ok ma creazione profilo fallita: "+err.Error()), http.StatusSeeOther)
+		log.Printf("post-login profile generation for %s failed: %v", email, err)
+		http.Redirect(w, r, "/?err="+urlQuery("Login ok but profile creation failed: "+err.Error()), http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -173,11 +173,11 @@ func (a *App) exchangeForEmail(p oidcProvider, code string) (string, error) {
 	if err := json.Unmarshal(body, &tok); err != nil {
 		return "", err
 	}
-	// L'id_token arriva direttamente dal token endpoint via TLS: i claim sono affidabili.
+	// The id_token comes straight from the token endpoint over TLS: claims are trustworthy.
 	if email := emailFromIDToken(tok.IDToken); email != "" {
 		return email, nil
 	}
-	// fallback: userinfo endpoint
+	// fallback: the userinfo endpoint
 	req, _ := http.NewRequest("GET", p.UserinfoURL, nil)
 	req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 	ures, err := http.DefaultClient.Do(req)
@@ -192,7 +192,7 @@ func (a *App) exchangeForEmail(p oidcProvider, code string) (string, error) {
 		return "", err
 	}
 	if ui.Email == "" {
-		return "", fmt.Errorf("nessuna email nei dati OIDC")
+		return "", fmt.Errorf("no email in OIDC data")
 	}
 	return ui.Email, nil
 }

@@ -84,7 +84,7 @@ func (m *Mikrotik) WGInterface(name string) (WGIface, error) {
 		return WGIface{}, err
 	}
 	if len(list) == 0 {
-		return WGIface{}, fmt.Errorf("interfaccia %q non trovata", name)
+		return WGIface{}, fmt.Errorf("interface %q not found", name)
 	}
 	return list[0], nil
 }

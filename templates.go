@@ -31,37 +31,37 @@ font-size:1rem;cursor:pointer;text-decoration:none;color:#fff;font-weight:600}
 `
 
 var loginTmpl = template.Must(template.New("login").Parse(`<!doctype html>
-<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Accesso VPN</title><style>` + pageCSS + `</style></head><body>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VPN Access</title><style>` + pageCSS + `</style></head><body>
 <div class="card">
-<h1>🔐 VPN WireGuard</h1>
-<p class="sub">Accedi per generare il tuo profilo di connessione</p>
+<h1>🔐 WireGuard VPN</h1>
+<p class="sub">Sign in to generate your connection profile</p>
 {{if .Err}}<div class="err">{{.Err}}</div>{{end}}
-{{if .Google}}<a class="btn google" href="/auth/google">Accedi con Google</a>{{end}}
-{{if .Microsoft}}<a class="btn microsoft" href="/auth/microsoft">Accedi con Microsoft</a>{{end}}
-{{if .Dev}}<a class="btn dev" href="/auth/dev">Accesso di test (DEV)</a>{{end}}
+{{if .Google}}<a class="btn google" href="/auth/google">Sign in with Google</a>{{end}}
+{{if .Microsoft}}<a class="btn microsoft" href="/auth/microsoft">Sign in with Microsoft</a>{{end}}
+{{if .Dev}}<a class="btn dev" href="/auth/dev">Test login (DEV)</a>{{end}}
 </div></body></html>`))
 
 var profileTmpl = template.Must(template.New("profile").Parse(`<!doctype html>
-<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Profilo VPN</title><style>` + pageCSS + `</style></head><body>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VPN Profile</title><style>` + pageCSS + `</style></head><body>
 <div class="card">
-<h1>🔐 VPN WireGuard</h1>
+<h1>🔐 WireGuard VPN</h1>
 <p class="sub"><span class="email">{{.Email}}</span></p>
 {{if .Err}}<div class="err">{{.Err}}</div>{{end}}
 {{if .Have}}
-  <p>Inquadra il QR con l'app WireGuard:</p>
-  <div class="qr"><img src="data:image/png;base64,{{.QR}}" alt="QR WireGuard"></div>
-  <div class="meta">IP assegnato: <b>{{.IP}}</b><br>
-  Scade: <b>{{.Expires}}</b> (fra {{.Remaining}})</div>
-  <a class="btn primary" href="/profile.conf">⬇ Scarica profilo .conf</a>
-  <form method="post" action="/generate"><button class="btn secondary">↻ Rigenera profilo</button></form>
-  <form method="post" action="/revoke"><button class="btn danger">✕ Revoca accesso</button></form>
+  <p>Scan the QR code with the WireGuard app:</p>
+  <div class="qr"><img src="data:image/png;base64,{{.QR}}" alt="WireGuard QR"></div>
+  <div class="meta">Assigned IP: <b>{{.IP}}</b><br>
+  Expires: <b>{{.Expires}}</b> (in {{.Remaining}})</div>
+  <a class="btn primary" href="/profile.conf">⬇ Download .conf profile</a>
+  <form method="post" action="/generate"><button class="btn secondary">↻ Regenerate profile</button></form>
+  <form method="post" action="/revoke"><button class="btn danger">✕ Revoke access</button></form>
 {{else}}
-  <p class="meta">Nessun profilo attivo.</p>
-  <form method="post" action="/generate"><button class="btn primary">Genera profilo VPN</button></form>
+  <p class="meta">No active profile.</p>
+  <form method="post" action="/generate"><button class="btn primary">Generate VPN profile</button></form>
 {{end}}
-<a class="btn secondary" href="/logout">Esci</a>
+<a class="btn secondary" href="/logout">Sign out</a>
 </div></body></html>`))
 
 func renderLogin(w http.ResponseWriter, cfg Config, errMsg string) {
@@ -73,7 +73,7 @@ func renderLogin(w http.ResponseWriter, cfg Config, errMsg string) {
 		"Err":       errMsg,
 	})
 	if err != nil {
-		log.Printf("template login: %v", err)
+		log.Printf("login template: %v", err)
 	}
 }
 
@@ -94,6 +94,6 @@ func renderProfile(w http.ResponseWriter, email string, ce confEntry, have bool,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := profileTmpl.Execute(w, data); err != nil {
-		log.Printf("template profile: %v", err)
+		log.Printf("profile template: %v", err)
 	}
 }

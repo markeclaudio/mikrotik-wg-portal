@@ -17,10 +17,10 @@ func randomBytes(n int) []byte {
 	return b
 }
 
-// genKeypair genera una coppia di chiavi WireGuard (Curve25519) in base64.
+// genKeypair generates a WireGuard (Curve25519) key pair in base64.
 func genKeypair() (privB64, pubB64 string, err error) {
 	raw := randomBytes(32)
-	// clamping come da specifica Curve25519
+	// clamping as per the Curve25519 spec
 	raw[0] &= 248
 	raw[31] &= 127
 	raw[31] |= 64
@@ -32,7 +32,7 @@ func genKeypair() (privB64, pubB64 string, err error) {
 		base64.StdEncoding.EncodeToString(priv.PublicKey().Bytes()), nil
 }
 
-// allocateIP sceglie il primo host libero della subnet, saltando network e .1 (server).
+// allocateIP picks the first free host in the subnet, skipping network and .1 (server).
 func allocateIP(subnet netip.Prefix, peers []WGPeer) (netip.Addr, error) {
 	used := map[netip.Addr]bool{}
 	for _, p := range peers {
@@ -54,7 +54,7 @@ func allocateIP(subnet netip.Prefix, peers []WGPeer) (netip.Addr, error) {
 			return ip, nil
 		}
 	}
-	return netip.Addr{}, fmt.Errorf("nessun indirizzo libero in %s", subnet)
+	return netip.Addr{}, fmt.Errorf("no free address in %s", subnet)
 }
 
 func buildClientConf(priv string, ip netip.Addr, bits int, dns, serverPub, psk, allowedIPs, endpoint string) string {

@@ -97,33 +97,33 @@ func loadConfig() Config {
 	}
 	sub, err := netip.ParsePrefix(env("WG_SUBNET", "10.99.99.0/24"))
 	if err != nil {
-		log.Fatalf("WG_SUBNET non valida: %v", err)
+		log.Fatalf("invalid WG_SUBNET: %v", err)
 	}
 	c.WGSubnet = sub.Masked()
 	ttl, err := parseTTL(env("WG_TTL", "8h"))
 	if err != nil {
-		log.Fatalf("WG_TTL non valido: %v", err)
+		log.Fatalf("invalid WG_TTL: %v", err)
 	}
 	c.TTL = ttl
 	ce, err := time.ParseDuration(env("CLEANUP_INTERVAL", "60s"))
 	if err != nil {
-		log.Fatalf("CLEANUP_INTERVAL non valido: %v", err)
+		log.Fatalf("invalid CLEANUP_INTERVAL: %v", err)
 	}
 	c.CleanupEvery = ce
 	if s := env("SESSION_SECRET", ""); s != "" {
 		c.SessionSecret = []byte(s)
 	} else {
 		c.SessionSecret = randomBytes(32)
-		log.Print("SESSION_SECRET non impostato: generato secret casuale (le sessioni non sopravvivono al riavvio)")
+		log.Print("SESSION_SECRET not set: generated a random secret (sessions will not survive a restart)")
 	}
 	if c.MikrotikUser == "" || c.MikrotikPass == "" {
-		log.Fatal("MIKROTIK_USER e MIKROTIK_PASS sono obbligatori")
+		log.Fatal("MIKROTIK_USER and MIKROTIK_PASS are required")
 	}
 	if c.WGEndpoint == "" {
-		log.Fatal("WG_ENDPOINT è obbligatorio (host:porta pubblico del server WireGuard)")
+		log.Fatal("WG_ENDPOINT is required (public host:port of the WireGuard server)")
 	}
 	if c.GoogleID == "" && c.MSID == "" && c.DevFakeAuth == "" {
-		log.Fatal("nessun metodo di login configurato: impostare GOOGLE_CLIENT_ID/SECRET o MS_CLIENT_ID/SECRET")
+		log.Fatal("no login method configured: set GOOGLE_CLIENT_ID/SECRET or MS_CLIENT_ID/SECRET")
 	}
 	return c
 }
@@ -139,7 +139,7 @@ type App struct {
 	mt  *Mikrotik
 
 	mu    sync.Mutex
-	confs map[string]confEntry // email -> ultimo profilo generato (solo in RAM)
+	confs map[string]confEntry // email -> last generated profile (RAM only)
 }
 
 func main() {
@@ -147,9 +147,9 @@ func main() {
 	app := &App{cfg: cfg, mt: newMikrotik(cfg), confs: map[string]confEntry{}}
 
 	if iface, err := app.mt.WGInterface(cfg.WGInterface); err != nil {
-		log.Printf("ATTENZIONE: interfaccia WireGuard %q non raggiungibile/trovata: %v", cfg.WGInterface, err)
+		log.Printf("WARNING: WireGuard interface %q unreachable/not found: %v", cfg.WGInterface, err)
 	} else {
-		log.Printf("MikroTik OK: interfaccia %s, chiave pubblica %s, porta %s", iface.Name, iface.PublicKey, iface.ListenPort)
+		log.Printf("MikroTik OK: interface %s, public key %s, port %s", iface.Name, iface.PublicKey, iface.ListenPort)
 	}
 
 	go app.cleanupLoop()
@@ -164,11 +164,11 @@ func main() {
 	mux.HandleFunc("GET /logout", app.handleLogout)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
-	log.Printf("wg-portal in ascolto su %s (public URL %s, TTL peer %s)", cfg.ListenAddr, cfg.PublicURL, cfg.TTL)
+	log.Printf("wg-portal listening on %s (public URL %s, peer TTL %s)", cfg.ListenAddr, cfg.PublicURL, cfg.TTL)
 	log.Fatal(http.ListenAndServe(cfg.ListenAddr, mux))
 }
 
-// ---- sessioni (cookie firmato HMAC, stateless) ----
+// ---- sessions (HMAC-signed cookie, stateless) ----
 
 func (a *App) sign(payload string) string {
 	m := hmac.New(sha256.New, a.cfg.SessionSecret)
@@ -215,7 +215,7 @@ func (a *App) clearSession(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: "wgp_s", Value: "", Path: "/", MaxAge: -1})
 }
 
-// ---- autorizzazione ----
+// ---- authorization ----
 
 func (a *App) emailAllowed(email string) bool {
 	email = strings.ToLower(email)
@@ -238,7 +238,7 @@ func (a *App) emailAllowed(email string) bool {
 	return false
 }
 
-// ---- handler ----
+// ---- handlers ----
 
 func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -266,8 +266,8 @@ func (a *App) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.generateProfile(email); err != nil {
-		log.Printf("generazione profilo per %s fallita: %v", email, err)
-		http.Redirect(w, r, "/?err="+urlQuery("Errore nella creazione del profilo: "+err.Error()), http.StatusSeeOther)
+		log.Printf("profile generation for %s failed: %v", email, err)
+		http.Redirect(w, r, "/?err="+urlQuery("Error while creating the profile: "+err.Error()), http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -280,12 +280,12 @@ func (a *App) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.removePeersFor(email); err != nil {
-		log.Printf("revoca per %s fallita: %v", email, err)
+		log.Printf("revoke for %s failed: %v", email, err)
 	}
 	a.mu.Lock()
 	delete(a.confs, email)
 	a.mu.Unlock()
-	log.Printf("profilo revocato per %s", email)
+	log.Printf("profile revoked for %s", email)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -299,7 +299,7 @@ func (a *App) handleDownload(w http.ResponseWriter, r *http.Request) {
 	ce, have := a.confs[email]
 	a.mu.Unlock()
 	if !have || time.Now().After(ce.Expires) {
-		http.Error(w, "nessun profilo attivo", http.StatusNotFound)
+		http.Error(w, "no active profile", http.StatusNotFound)
 		return
 	}
 	name := strings.Map(func(r rune) rune {
@@ -318,18 +318,18 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// generateProfile: chiavi nuove, peer sul MikroTik (sostituendo quello esistente), conf in RAM.
+// generateProfile: fresh keys, peer on the MikroTik (replacing any existing one), conf kept in RAM.
 func (a *App) generateProfile(email string) error {
 	iface, err := a.mt.WGInterface(a.cfg.WGInterface)
 	if err != nil {
-		return fmt.Errorf("interfaccia WireGuard: %w", err)
+		return fmt.Errorf("WireGuard interface: %w", err)
 	}
 	if err := a.removePeersFor(email); err != nil {
-		return fmt.Errorf("rimozione peer precedente: %w", err)
+		return fmt.Errorf("removing previous peer: %w", err)
 	}
 	peers, err := a.mt.WGPeers(a.cfg.WGInterface)
 	if err != nil {
-		return fmt.Errorf("lettura peer: %w", err)
+		return fmt.Errorf("listing peers: %w", err)
 	}
 	ip, err := allocateIP(a.cfg.WGSubnet, peers)
 	if err != nil {
@@ -350,7 +350,7 @@ func (a *App) generateProfile(email string) error {
 		"comment":         peerComment(email, expires),
 	})
 	if err != nil {
-		return fmt.Errorf("creazione peer: %w", err)
+		return fmt.Errorf("creating peer: %w", err)
 	}
 
 	endpoint := a.cfg.WGEndpoint
@@ -362,7 +362,7 @@ func (a *App) generateProfile(email string) error {
 	a.mu.Lock()
 	a.confs[email] = confEntry{Conf: conf, IP: ip, Expires: expires}
 	a.mu.Unlock()
-	log.Printf("profilo creato per %s: ip %s, scade %s", email, ip, expires.Format(time.RFC3339))
+	log.Printf("profile created for %s: ip %s, expires %s", email, ip, expires.Format(time.RFC3339))
 	return nil
 }
 
@@ -381,15 +381,15 @@ func (a *App) removePeersFor(email string) error {
 	return nil
 }
 
-// cleanupLoop rimuove i peer scaduti; la scadenza vive nel commento del peer,
-// quindi funziona anche dopo un riavvio del container.
+// cleanupLoop removes expired peers; the expiry lives in the peer comment,
+// so it keeps working even after a container restart.
 func (a *App) cleanupLoop() {
 	t := time.NewTicker(a.cfg.CleanupEvery)
 	defer t.Stop()
 	for range t.C {
 		peers, err := a.mt.WGPeers(a.cfg.WGInterface)
 		if err != nil {
-			log.Printf("cleanup: lettura peer fallita: %v", err)
+			log.Printf("cleanup: listing peers failed: %v", err)
 			continue
 		}
 		now := time.Now()
@@ -399,10 +399,10 @@ func (a *App) cleanupLoop() {
 				continue
 			}
 			if err := a.mt.DeleteWGPeer(p.ID); err != nil {
-				log.Printf("cleanup: rimozione peer %s (%s) fallita: %v", p.ID, email, err)
+				log.Printf("cleanup: removing peer %s (%s) failed: %v", p.ID, email, err)
 				continue
 			}
-			log.Printf("cleanup: peer scaduto rimosso (%s, scadenza %s)", email, exp.Format(time.RFC3339))
+			log.Printf("cleanup: expired peer removed (%s, expiry %s)", email, exp.Format(time.RFC3339))
 			a.mu.Lock()
 			if ce, okc := a.confs[email]; okc && !ce.Expires.After(exp) {
 				delete(a.confs, email)
