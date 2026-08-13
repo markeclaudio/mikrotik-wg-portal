@@ -7,6 +7,10 @@ Minimal web portal (single Go binary, `FROM scratch` Docker image, ~9 MB) that:
 3. creates the **peer on the MikroTik via REST API** (with preshared key)
 4. shows a **QR code** + a **"Download .conf profile"** button
 5. **automatically removes the peer when it expires** (`WG_TTL` in `.env`)
+6. serves **HTTPS with an automatic Let's Encrypt certificate** (built-in ACME
+   client, TLS-ALPN-01, auto-renewal) — no reverse proxy needed
+7. optionally keeps a **Cloudflare DNS record updated** with your public IP
+   (dynamic DNS via API token), so you can use your own domain
 
 The expiry timestamp is stored in the peer *comment* on the router
 (`wg-portal|email|expires=...`), so cleanup keeps working even after the
@@ -16,11 +20,13 @@ on the router** as a native RouterOS container.
 ## Repository layout
 
 ```
-cmd/wg-portal/        application: HTTP handlers, OAuth, session, HTML
+cmd/wg-portal/        application: HTTP/HTTPS handlers, OAuth, session, ACME, HTML
 internal/mikrotik/    RouterOS v7 REST API client
 internal/wgutil/      WireGuard helpers: keygen, IP allocation, .conf builder
+internal/cloudflare/  Cloudflare dynamic-DNS updater (API v4)
 docs/oauth-setup.md   how to get Google/Microsoft credentials for the .env
 docs/routeros-container.md  full RouterOS deployment guide (L009 & co.)
+.github/workflows/    CI: multi-arch image build on every push to main
 Dockerfile            multi-arch build (amd64 / arm64 / arm v7)
 docker-compose.yml    for running on a regular Docker host
 .env.example          all configuration variables, commented
@@ -67,6 +73,8 @@ Every push to `main` builds the image for `linux/amd64`, `linux/arm64` and
 | `WG_ENDPOINT` | Public `host[:port]` of the WireGuard server, goes into the `.conf` |
 | `WG_ALLOWED_IPS` | Routes pushed to the client (`0.0.0.0/0` = all traffic) |
 | `ALLOWED_DOMAINS` / `ALLOWED_EMAILS` | Access allowlist (empty = anyone who authenticates!) |
+| `ACME_DOMAIN` | Enables the built-in HTTPS listener with an automatic Let's Encrypt certificate for this domain (cache in `ACME_CACHE`, keep it on a persistent mount) |
+| `CF_API_TOKEN` / `CF_RECORD` | Cloudflare dynamic DNS: keeps the A record pointed at the current public IP (DNS-only) |
 | `DEV_FAKE_AUTH` | Test email: enables fake login without OAuth — **development only** |
 
 Full reference with comments: [.env.example](.env.example).
