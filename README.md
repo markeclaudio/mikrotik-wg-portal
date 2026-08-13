@@ -87,3 +87,7 @@ Full reference with comments: [.env.example](.env.example).
 - Set `ALLOWED_DOMAINS`/`ALLOWED_EMAILS`: authentication alone should not grant VPN access.
 - **Microsoft**: use a single-tenant app and put the tenant **GUID** in `MS_TENANT` — the portal then rejects tokens from other tenants (protection against email spoofing by rogue multi-tenant admins, aka "nOAuth"). Accounts whose email is reported as unverified by the IdP are rejected.
 - There is no test/bypass login: authentication always goes through the OAuth providers.
+
+## License
+
+[MIT](LICENSE)
